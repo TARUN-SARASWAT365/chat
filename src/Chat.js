@@ -1,0 +1,130 @@
+// 📄 Chat.jsx
+import React, { useState, useEffect, useRef } from 'react';
+import io from 'socket.io-client';
+import axios from 'axios';
+import { ArrowLeft } from 'lucide-react';
+import './Chat.css';
+
+const socket = io('http://192.168.1.19:5000');
+
+const Chat = ({ currentUser }) => {
+  const [users, setUsers] = useState([]);
+  const [onlineUsers, setOnlineUsers] = useState([]);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [file, setFile] = useState(null);
+  const [darkMode, setDarkMode] = useState(false);
+  const messagesEndRef = useRef(null);
+
+  useEffect(() => {
+    socket.emit('user_connected', currentUser);
+
+    socket.on('online_users', setOnlineUsers);
+    socket.on('receive_message', msg => {
+      setMessages(prev => [...prev, msg]);
+    });
+    socket.on('message_deleted', id => {
+      setMessages(prev => prev.filter(m => m._id !== id));
+    });
+    socket.on('message_updated', updated => {
+      setMessages(prev => prev.map(m => m._id === updated._id ? updated : m));
+    });
+
+    return () => socket.disconnect();
+  }, [currentUser]);
+
+  useEffect(() => {
+    axios.get('http://192.168.1.19:5000/users')
+      .then(res => setUsers(res.data));
+  }, []);
+
+  useEffect(() => {
+    if (!selectedUser) return;
+    axios.get(`http://192.168.1.19:5000/messages?sender=${currentUser}&receiver=${selectedUser}`)
+      .then(res => setMessages(res.data));
+  }, [selectedUser, currentUser]);
+
+  const sendMessage = async () => {
+    if (!newMessage && !file) return;
+    let content = newMessage;
+
+    if (file) {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await axios.post('http://192.168.1.19:5000/upload', formData);
+      content = res.data.url;
+      setFile(null);
+    }
+
+    const msg = {
+      sender: currentUser,
+      receiver: selectedUser,
+      content,
+      timestamp: new Date()
+    };
+    socket.emit('send_message', msg);
+    setNewMessage('');
+  };
+
+  const handleFileChange = e => setFile(e.target.files[0]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  return (
+    <div className={`chat-container ${darkMode ? 'dark' : ''}`}>
+      <div className={`sidebar ${selectedUser ? 'hide-on-mobile' : ''}`}>
+        <h4>Users</h4>
+        {users.map(u => (
+          <div
+            key={u.username}
+            className={`user-item ${selectedUser === u.username ? 'active' : ''} ${onlineUsers.includes(u.username) ? 'online' : ''}`}
+            onClick={() => setSelectedUser(u.username)}>
+            <span className={`status-dot ${onlineUsers.includes(u.username) ? 'online' : ''}`}></span>
+            {u.username}
+          </div>
+        ))}
+        <button onClick={() => setDarkMode(!darkMode)}>Toggle Dark Mode</button>
+      </div>
+
+      {selectedUser && (
+        <div className="chat-window">
+          <div className="chat-header">
+            <button className="back-btn" onClick={() => setSelectedUser(null)}><ArrowLeft size={20} /></button>
+            {selectedUser ? `Chat with ${selectedUser}` : 'Chat'}
+          </div>
+          <div className="messages">
+            {messages.map(m => (
+              <div key={m._id} className={`message ${m.sender === currentUser ? 'sent' : 'received'}`}>
+                {m.content.match(/\.(jpeg|jpg|png|gif)$/i) ? (
+                  <div className="file-preview">
+                    <img src={m.content} alt="sent file" />
+                  </div>
+                ) : (
+                  <div className="msg-content">{m.content}</div>
+                )}
+                <div className="msg-time">{new Date(m.timestamp).toLocaleTimeString()}</div>
+              </div>
+            ))}
+            <div ref={messagesEndRef} />
+          </div>
+
+          <div className="input-area">
+            <input type="file" onChange={handleFileChange} />
+            <input
+              type="text"
+              placeholder="Type a message..."
+              value={newMessage}
+              onChange={e => setNewMessage(e.target.value)}
+            />
+            <button onClick={sendMessage}>Send</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default Chat;
