@@ -5,7 +5,8 @@ import axios from 'axios';
 import { ArrowLeft } from 'lucide-react';
 import './Chat.css';
 
-const socket = io('http://192.168.1.19:5000');
+// ✅ Use deployed Render backend
+const socket = io('https://chatback-7.onrender.com');
 
 const Chat = ({ currentUser }) => {
   const [users, setUsers] = useState([]);
@@ -35,13 +36,13 @@ const Chat = ({ currentUser }) => {
   }, [currentUser]);
 
   useEffect(() => {
-    axios.get('http://192.168.1.19:5000/users')
+    axios.get('https://chatback-7.onrender.com/users')
       .then(res => setUsers(res.data));
   }, []);
 
   useEffect(() => {
     if (!selectedUser) return;
-    axios.get(`http://192.168.1.19:5000/messages?sender=${currentUser}&receiver=${selectedUser}`)
+    axios.get(`https://chatback-7.onrender.com/messages?sender=${currentUser}&receiver=${selectedUser}`)
       .then(res => setMessages(res.data));
   }, [selectedUser, currentUser]);
 
@@ -52,7 +53,7 @@ const Chat = ({ currentUser }) => {
     if (file) {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await axios.post('http://192.168.1.19:5000/upload', formData);
+      const res = await axios.post('https://chatback-7.onrender.com/upload', formData);
       content = res.data.url;
       setFile(null);
     }

@@ -7,7 +7,7 @@ export default function Login({ onLogin }) {
   const submit = async (e) => {
     e.preventDefault();
     try {
-      const res = await axios.post('http://192.168.1.19:5000/login', form);
+      const res = await axios.post('https://chatback-7.onrender.com/login', form);
       alert('Login successful');
       onLogin(form.username);
     } catch (err) {
@@ -22,8 +22,17 @@ export default function Login({ onLogin }) {
   return (
     <form onSubmit={submit}>
       <h2>Login</h2>
-      <input placeholder="Username" onChange={e => setForm({ ...form, username: e.target.value })} />
-      <input placeholder="Password" type="password" onChange={e => setForm({ ...form, password: e.target.value })} />
+      <input
+        placeholder="Username"
+        value={form.username}
+        onChange={e => setForm({ ...form, username: e.target.value })}
+      />
+      <input
+        placeholder="Password"
+        type="password"
+        value={form.password}
+        onChange={e => setForm({ ...form, password: e.target.value })}
+      />
       <button type="submit">Login</button>
     </form>
   );

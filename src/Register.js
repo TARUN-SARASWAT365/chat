@@ -7,7 +7,7 @@ export default function Register() {
   const submit = async (e) => {
     e.preventDefault();
     try {
-      const res = await axios.post('http://192.168.1.19:5000/register', form);
+      const res = await axios.post('https://chatback-7.onrender.com/register', form);
       alert('Registered successfully');
     } catch (err) {
       if (err.response && err.response.data) {
@@ -21,8 +21,17 @@ export default function Register() {
   return (
     <form onSubmit={submit}>
       <h2>Register</h2>
-      <input placeholder="Username" onChange={e => setForm({ ...form, username: e.target.value })} />
-      <input placeholder="Password" type="password" onChange={e => setForm({ ...form, password: e.target.value })} />
+      <input
+        placeholder="Username"
+        value={form.username}
+        onChange={e => setForm({ ...form, username: e.target.value })}
+      />
+      <input
+        placeholder="Password"
+        type="password"
+        value={form.password}
+        onChange={e => setForm({ ...form, password: e.target.value })}
+      />
       <button type="submit">Register</button>
     </form>
   );
