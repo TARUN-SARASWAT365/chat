@@ -1,58 +1,110 @@
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import axios from 'axios';
-import { ArrowLeft } from 'lucide-react';
 import './Chat.css';
 
-const socket = io('https://chatback-7.onrender.com');
-const reactionsList = ['👍', '❤️', '😂', '😮', '😢', '👏'];
+const socket = io('http://localhost:5000');
 
 const Chat = ({ currentUser }) => {
-  const [darkMode, setDarkMode] = useState(false);   // Added this
   const [users, setUsers] = useState([]);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
-  const [file, setFile] = useState(null);
-  const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef(null);
-  const typingTimeout = useRef(null);
 
   useEffect(() => {
     socket.emit('user_connected', currentUser);
-    socket.on('online_users', setOnlineUsers);
-    socket.on('receive_message', msg => setMessages(prev => [...prev, msg]));
-    socket.on('reaction_updated', ({ messageId, reactions }) =>
-      setMessages(prev => prev.map(m => m._id === messageId ? { ...m, reactions } : m))
-    );
-    socket.on('messages_seen', ({ receiver, updatedMessages }) => {
-      if (receiver === currentUser) setMessages(updatedMessages);
-    });
-    socket.on('typing', user => {
-      if (user === selectedUser) {
-        setIsTyping(true);
-        clearTimeout(typingTimeout.current);
-        typingTimeout.current = setTimeout(() => setIsTyping(false), 1500);
+
+    socket.on('online_users', users => setOnlineUsers(users));
+
+    socket.on('receive_message', msg => {
+      if (
+        (msg.sender === currentUser && msg.receiver === selectedUser) ||
+        (msg.sender === selectedUser && msg.receiver === currentUser)
+      ) {
+        setMessages(prev => [...prev, msg]);
       }
     });
 
-    return () => {
-      socket.off('online_users');
-      socket.off('receive_message');
-      socket.off('reaction_updated');
-      socket.off('messages_seen');
-      socket.off('typing');
-    };
+    return () => socket.off('receive_message');
   }, [currentUser, selectedUser]);
 
-  // rest of your code unchanged...
+  useEffect(() => {
+    // Load all users
+    axios.get('http://localhost:5000/api/users')
+      .then(res => setUsers(res.data))
+      .catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    if (!selectedUser) return;
+
+    axios.get(`http://localhost:5000/api/messages?sender=${currentUser}&receiver=${selectedUser}`)
+      .then(res => setMessages(res.data))
+      .catch(console.error);
+  }, [selectedUser, currentUser]);
+
+  const sendMessage = () => {
+    if (!newMessage.trim()) return;
+    const msg = {
+      sender: currentUser,
+      receiver: selectedUser,
+      content: newMessage.trim(),
+      timestamp: new Date(),
+    };
+    socket.emit('send_message', msg);
+    setMessages(prev => [...prev, msg]);
+    setNewMessage('');
+  };
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   return (
-    <div className={`chat-container ${darkMode ? 'dark' : ''}`}>
-      {/* ...sidebar and chat UI code */}
-      <button onClick={() => setDarkMode(!darkMode)}>Toggle Dark Mode</button>
-      {/* ... */}
+    <div className="chat-container">
+      <div className="sidebar">
+        <h3>Users</h3>
+        {users.map(user => (
+          <div
+            key={user.username}
+            className={`user-item ${user.username === selectedUser ? 'selected' : ''} ${onlineUsers.includes(user.username) ? 'online' : ''}`}
+            onClick={() => setSelectedUser(user.username)}
+          >
+            {user.username}
+            {onlineUsers.includes(user.username) && <span className="online-dot" />}
+          </div>
+        ))}
+      </div>
+
+      <div className="chat-window">
+        {!selectedUser && <div className="welcome">Select a user to chat</div>}
+        {selectedUser && (
+          <>
+            <div className="chat-header">Chat with {selectedUser}</div>
+            <div className="messages">
+              {messages.map((m, i) => (
+                <div key={i} className={`message ${m.sender === currentUser ? 'sent' : 'received'}`}>
+                  <div>{m.content}</div>
+                  <small>{new Date(m.timestamp).toLocaleTimeString()}</small>
+                </div>
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
+            <div className="input-area">
+              <input
+                type="text"
+                placeholder="Type a message..."
+                value={newMessage}
+                onChange={e => setNewMessage(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && sendMessage()}
+              />
+              <button onClick={sendMessage}>Send</button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 };

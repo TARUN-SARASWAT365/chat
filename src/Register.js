@@ -1,38 +1,36 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 
-export default function Register() {
-  const [form, setForm] = useState({ username: '', password: '' });
+const Register = ({ onRegister }) => {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
-  const submit = async (e) => {
+  const handleRegister = async e => {
     e.preventDefault();
+    setError('');
+    setSuccess('');
     try {
-      const res = await axios.post('https://chatback-7.onrender.com/register', form);
-      alert('Registered successfully');
+      await axios.post('http://localhost:5000/api/users/register', { username, password });
+      setSuccess('Registration successful! You can login now.');
+      setUsername('');
+      setPassword('');
     } catch (err) {
-      if (err.response && err.response.data) {
-        alert(err.response.data.error);
-      } else {
-        alert('Server not responding');
-      }
+      setError(err.response?.data?.error || 'Registration failed');
     }
   };
 
   return (
-    <form onSubmit={submit}>
+    <form onSubmit={handleRegister}>
       <h2>Register</h2>
-      <input
-        placeholder="Username"
-        value={form.username}
-        onChange={e => setForm({ ...form, username: e.target.value })}
-      />
-      <input
-        placeholder="Password"
-        type="password"
-        value={form.password}
-        onChange={e => setForm({ ...form, password: e.target.value })}
-      />
+      <input value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" required />
+      <input value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" type="password" required />
       <button type="submit">Register</button>
+      {error && <p style={{color: 'red'}}>{error}</p>}
+      {success && <p style={{color: 'green'}}>{success}</p>}
     </form>
   );
-}
+};
+
+export default Register;

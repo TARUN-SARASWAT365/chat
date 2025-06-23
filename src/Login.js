@@ -1,39 +1,31 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 
-export default function Login({ onLogin }) {
-  const [form, setForm] = useState({ username: '', password: '' });
+const Login = ({ onLogin }) => {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
 
-  const submit = async (e) => {
+  const handleLogin = async e => {
     e.preventDefault();
+    setError('');
     try {
-      const res = await axios.post('https://chatback-7.onrender.com/login', form);
-      alert('Login successful');
-      onLogin(form.username);
+      const res = await axios.post('http://localhost:5000/api/users/login', { username, password });
+      onLogin(res.data.username);
     } catch (err) {
-      if (err.response && err.response.data) {
-        alert(err.response.data.error);
-      } else {
-        alert('Server not responding');
-      }
+      setError(err.response?.data?.error || 'Login failed');
     }
   };
 
   return (
-    <form onSubmit={submit}>
+    <form onSubmit={handleLogin}>
       <h2>Login</h2>
-      <input
-        placeholder="Username"
-        value={form.username}
-        onChange={e => setForm({ ...form, username: e.target.value })}
-      />
-      <input
-        placeholder="Password"
-        type="password"
-        value={form.password}
-        onChange={e => setForm({ ...form, password: e.target.value })}
-      />
+      <input value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" required />
+      <input value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" type="password" required />
       <button type="submit">Login</button>
+      {error && <p style={{color: 'red'}}>{error}</p>}
     </form>
   );
-}
+};
+
+export default Login;
