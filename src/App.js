@@ -9,7 +9,7 @@ function App() {
   return !user ? (
     <>
       <Register />
-      <Login onLogin={setUser} />
+      <Login onLoginSuccess={setUser} />
     </>
   ) : (
     <Chat currentUser={user} />
