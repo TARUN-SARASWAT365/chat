@@ -117,3 +117,21 @@
 .input-area button:hover {
   background-color: #45a049;
 }
+.reactions {
+  margin-top: 5px;
+}
+
+.reaction-btn {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  margin-right: 5px;
+  opacity: 0.6;
+  transition: opacity 0.3s ease;
+}
+
+.reaction-btn.reacted {
+  opacity: 1;
+  font-weight: bold;
+}

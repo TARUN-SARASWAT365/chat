@@ -5,12 +5,15 @@ import './Chat.css';
 
 const socket = io('http://localhost:5000');
 
+const reactionsList = ['👍', '❤️', '😂', '😮', '😢', '👏'];
+
 const Chat = ({ currentUser }) => {
   const [users, setUsers] = useState([]);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
+  const [showReactionsFor, setShowReactionsFor] = useState(null); // track which message's reactions are shown
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
@@ -27,7 +30,16 @@ const Chat = ({ currentUser }) => {
       }
     });
 
-    return () => socket.off('receive_message');
+    socket.on('reaction_updated', ({ messageId, reactions }) => {
+      setMessages(prev =>
+        prev.map(m => (m._id === messageId ? { ...m, reactions } : m))
+      );
+    });
+
+    return () => {
+      socket.off('receive_message');
+      socket.off('reaction_updated');
+    };
   }, [currentUser, selectedUser]);
 
   useEffect(() => {
@@ -58,6 +70,16 @@ const Chat = ({ currentUser }) => {
     setNewMessage('');
   };
 
+  const toggleReaction = (messageId, reaction) => {
+    // If this message's reactions are not showing, show them (optional)
+    setShowReactionsFor(null); // Hide reaction panel after click
+
+    socket.emit('toggle_reaction', { messageId, user: currentUser, reaction });
+  };
+
+  const userHasReacted = (message, reaction) =>
+    message.reactions?.some(r => r.user === currentUser && r.reaction === reaction);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -84,10 +106,34 @@ const Chat = ({ currentUser }) => {
           <>
             <div className="chat-header">Chat with {selectedUser}</div>
             <div className="messages">
-              {messages.map((m, i) => (
-                <div key={i} className={`message ${m.sender === currentUser ? 'sent' : 'received'}`}>
+              {messages.map(m => (
+                <div
+                  key={m._id || m.timestamp} 
+                  className={`message ${m.sender === currentUser ? 'sent' : 'received'}`}
+                  onClick={() =>
+                    setShowReactionsFor(showReactionsFor === m._id ? null : m._id)
+                  }
+                >
                   <div>{m.content}</div>
                   <small>{new Date(m.timestamp).toLocaleTimeString()}</small>
+
+                  {/* Reaction icons only show if this message is selected */}
+                  {showReactionsFor === m._id && (
+                    <div className="reactions">
+                      {reactionsList.map(reaction => (
+                        <button
+                          key={reaction}
+                          className={`reaction-btn ${userHasReacted(m, reaction) ? 'reacted' : ''}`}
+                          onClick={e => {
+                            e.stopPropagation(); // prevent toggling again
+                            toggleReaction(m._id, reaction);
+                          }}
+                        >
+                          {reaction}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
               <div ref={messagesEndRef} />
