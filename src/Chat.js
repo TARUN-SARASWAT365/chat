@@ -5,7 +5,6 @@ import { ArrowLeft } from 'lucide-react';
 import './Chat.css';
 
 const socket = io('https://chatback-7.onrender.com');
-
 const reactionsList = ['👍', '❤️', '😂', '😮', '😢', '👏'];
 
 const Chat = ({ currentUser }) => {
@@ -15,32 +14,40 @@ const Chat = ({ currentUser }) => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [file, setFile] = useState(null);
-  const [darkMode, setDarkMode] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef(null);
+  const typingTimeout = useRef(null);
 
   useEffect(() => {
     socket.emit('user_connected', currentUser);
-
     socket.on('online_users', setOnlineUsers);
+
     socket.on('receive_message', msg => {
       setMessages(prev => [...prev, msg]);
     });
-    socket.on('message_deleted', id => {
-      setMessages(prev => prev.filter(m => m._id !== id));
-    });
-    socket.on('message_updated', updated => {
-      setMessages(prev => prev.map(m => (m._id === updated._id ? updated : m)));
+
+    socket.on('reaction_updated', ({ messageId, reactions }) =>
+      setMessages(prev => prev.map(m =>
+        m._id === messageId ? { ...m, reactions } : m
+      ))
+    );
+
+    socket.on('messages_seen', ({ receiver, updatedMessages }) => {
+      if (receiver === currentUser) {
+        setMessages(updatedMessages);
+      }
     });
 
-    // New: listen for reaction updates
-    socket.on('reaction_updated', ({ messageId, reactions }) => {
-      setMessages(prev =>
-        prev.map(m => (m._id === messageId ? { ...m, reactions } : m))
-      );
+    socket.on('typing', user => {
+      if (user === selectedUser) {
+        setIsTyping(true);
+        clearTimeout(typingTimeout.current);
+        typingTimeout.current = setTimeout(() => setIsTyping(false), 1500);
+      }
     });
 
     return () => socket.disconnect();
-  }, [currentUser]);
+  }, [currentUser, selectedUser]);
 
   useEffect(() => {
     axios.get('https://chatback-7.onrender.com/users').then(res => setUsers(res.data));
@@ -50,13 +57,15 @@ const Chat = ({ currentUser }) => {
     if (!selectedUser) return;
     axios
       .get(`https://chatback-7.onrender.com/messages?sender=${currentUser}&receiver=${selectedUser}`)
-      .then(res => setMessages(res.data));
+      .then(res => {
+        setMessages(res.data);
+        socket.emit('mark_seen', { sender: selectedUser, receiver: currentUser });
+      });
   }, [selectedUser, currentUser]);
 
   const sendMessage = async () => {
     if (!newMessage && !file) return;
     let content = newMessage;
-
     if (file) {
       const formData = new FormData();
       formData.append('file', file);
@@ -64,22 +73,22 @@ const Chat = ({ currentUser }) => {
       content = res.data.url;
       setFile(null);
     }
-
-    const msg = {
-      sender: currentUser,
-      receiver: selectedUser,
-      content,
-      timestamp: new Date(),
-    };
+    const msg = { sender: currentUser, receiver: selectedUser, content, timestamp: new Date() };
     socket.emit('send_message', msg);
     setNewMessage('');
   };
 
-  const handleFileChange = e => setFile(e.target.files[0]);
+  const handleTyping = e => {
+    setNewMessage(e.target.value);
+    socket.emit('typing', currentUser);
+  };
 
   const toggleReaction = (messageId, reaction) => {
     socket.emit('toggle_reaction', { messageId, user: currentUser, reaction });
   };
+
+  const userHasReacted = (message, reaction) =>
+    message.reactions?.some(r => r.user === currentUser && r.reaction === reaction);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -92,14 +101,10 @@ const Chat = ({ currentUser }) => {
         {users.map(u => (
           <div
             key={u.username}
-            className={`user-item ${
-              selectedUser === u.username ? 'active' : ''
-            } ${onlineUsers.includes(u.username) ? 'online' : ''}`}
+            className={`user-item ${selectedUser === u.username ? 'active' : ''} ${onlineUsers.includes(u.username) ? 'online' : ''}`}
             onClick={() => setSelectedUser(u.username)}
           >
-            <span
-              className={`status-dot ${onlineUsers.includes(u.username) ? 'online' : ''}`}
-            ></span>
+            <span className={`status-dot ${onlineUsers.includes(u.username) ? 'online' : ''}`} />
             {u.username}
           </div>
         ))}
@@ -117,32 +122,20 @@ const Chat = ({ currentUser }) => {
 
           <div className="messages">
             {messages.map(m => (
-              <div
-                key={m._id}
-                className={`message ${m.sender === currentUser ? 'sent' : 'received'}`}
-              >
-                {m.content.match(/\.(jpeg|jpg|png|gif)$/i) ? (
-                  <div className="file-preview">
-                    <img src={m.content} alt="sent file" />
-                  </div>
+              <div key={m._id} className={`message ${m.sender === currentUser ? 'sent' : 'received'}`}>
+                {/\.(jpeg|jpg|png|gif)$/i.test(m.content) ? (
+                  <div className="file-preview"><img src={m.content} alt="file" /></div>
                 ) : (
                   <div className="msg-content">{m.content}</div>
                 )}
 
-                {/* Reactions display */}
                 <div className="reactions">
-                  {m.reactions &&
-                    m.reactions.map((r, i) => (
-                      <span key={i} title={r.user}>
-                        {r.reaction}
-                      </span>
-                    ))}
+                  {m.reactions?.map((r, i) => <span key={i} title={r.user}>{r.reaction}</span>)}
 
-                  {/* Reaction buttons */}
                   {reactionsList.map(reaction => (
                     <button
                       key={reaction}
-                      className="reaction-btn"
+                      className={`reaction-btn ${userHasReacted(m, reaction) ? 'reacted' : ''}`}
                       onClick={() => toggleReaction(m._id, reaction)}
                     >
                       {reaction}
@@ -150,19 +143,27 @@ const Chat = ({ currentUser }) => {
                   ))}
                 </div>
 
+                {m.sender === currentUser && (
+                  <div className={`seen-label ${m.seen ? 'seen' : 'sent'}`}>
+                    {m.seen ? 'Seen' : 'Sent'}
+                  </div>
+                )}
+
                 <div className="msg-time">{new Date(m.timestamp).toLocaleTimeString()}</div>
               </div>
             ))}
+
+            {isTyping && <div className="typing-indicator">{selectedUser} is typing...</div>}
             <div ref={messagesEndRef} />
           </div>
 
           <div className="input-area">
-            <input type="file" onChange={handleFileChange} />
+            <input type="file" onChange={e => setFile(e.target.files[0])} />
             <input
               type="text"
               placeholder="Type a message..."
               value={newMessage}
-              onChange={e => setNewMessage(e.target.value)}
+              onChange={handleTyping}
               onKeyDown={e => e.key === 'Enter' && sendMessage()}
             />
             <button onClick={sendMessage}>Send</button>
