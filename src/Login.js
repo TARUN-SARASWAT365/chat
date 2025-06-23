@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+
 function Login({ onLoginSuccess }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -11,7 +13,7 @@ function Login({ onLoginSuccess }) {
     setError('');
 
     try {
-      const res = await axios.post('http://localhost:5000/api/users/login', { username, password });
+      const res = await axios.post(`${BACKEND_URL}/api/users/login`, { username, password });
       if (res.data.username) {
         onLoginSuccess(res.data.username);
       }

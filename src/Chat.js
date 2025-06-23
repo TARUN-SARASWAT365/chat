@@ -3,7 +3,9 @@ import io from 'socket.io-client';
 import axios from 'axios';
 import './Chat.css';
 
-const socket = io('http://localhost:5000');
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+
+const socket = io(BACKEND_URL);
 
 const reactionsList = ['👍', '❤️', '😂', '😮', '😢', '👏'];
 
@@ -13,7 +15,7 @@ const Chat = ({ currentUser }) => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
-  const [showReactionsFor, setShowReactionsFor] = useState(null); // track which message's reactions are shown
+  const [showReactionsFor, setShowReactionsFor] = useState(null);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
@@ -43,8 +45,7 @@ const Chat = ({ currentUser }) => {
   }, [currentUser, selectedUser]);
 
   useEffect(() => {
-    // Load all users
-    axios.get('http://localhost:5000/api/users')
+    axios.get(`${BACKEND_URL}/api/users`)
       .then(res => setUsers(res.data))
       .catch(console.error);
   }, []);
@@ -52,7 +53,7 @@ const Chat = ({ currentUser }) => {
   useEffect(() => {
     if (!selectedUser) return;
 
-    axios.get(`http://localhost:5000/api/messages?sender=${currentUser}&receiver=${selectedUser}`)
+    axios.get(`${BACKEND_URL}/api/messages?sender=${currentUser}&receiver=${selectedUser}`)
       .then(res => setMessages(res.data))
       .catch(console.error);
   }, [selectedUser, currentUser]);
@@ -71,8 +72,7 @@ const Chat = ({ currentUser }) => {
   };
 
   const toggleReaction = (messageId, reaction) => {
-    // If this message's reactions are not showing, show them (optional)
-    setShowReactionsFor(null); // Hide reaction panel after click
+    setShowReactionsFor(null);
 
     socket.emit('toggle_reaction', { messageId, user: currentUser, reaction });
   };
@@ -108,7 +108,7 @@ const Chat = ({ currentUser }) => {
             <div className="messages">
               {messages.map(m => (
                 <div
-                  key={m._id || m.timestamp} 
+                  key={m._id || m.timestamp}
                   className={`message ${m.sender === currentUser ? 'sent' : 'received'}`}
                   onClick={() =>
                     setShowReactionsFor(showReactionsFor === m._id ? null : m._id)
@@ -117,7 +117,6 @@ const Chat = ({ currentUser }) => {
                   <div>{m.content}</div>
                   <small>{new Date(m.timestamp).toLocaleTimeString()}</small>
 
-                  {/* Reaction icons only show if this message is selected */}
                   {showReactionsFor === m._id && (
                     <div className="reactions">
                       {reactionsList.map(reaction => (
@@ -125,7 +124,7 @@ const Chat = ({ currentUser }) => {
                           key={reaction}
                           className={`reaction-btn ${userHasReacted(m, reaction) ? 'reacted' : ''}`}
                           onClick={e => {
-                            e.stopPropagation(); // prevent toggling again
+                            e.stopPropagation();
                             toggleReaction(m._id, reaction);
                           }}
                         >
