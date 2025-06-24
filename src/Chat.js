@@ -4,7 +4,6 @@ import axios from 'axios';
 import './Chat.css';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-
 const socket = io(BACKEND_URL);
 
 const reactionsList = ['👍', '❤️', '😂', '😮', '😢', '👏'];
@@ -16,11 +15,8 @@ const Chat = ({ currentUser }) => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [showReactionsFor, setShowReactionsFor] = useState(null);
-  const [typingUsers, setTypingUsers] = useState({}); // Track who is typing
-  const [isTyping, setIsTyping] = useState(false); // Track own typing status
-
+  const [typingUsers, setTypingUsers] = useState({});
   const messagesEndRef = useRef(null);
-  const typingTimeoutRef = useRef(null);
 
   useEffect(() => {
     socket.emit('user_connected', currentUser);
@@ -33,7 +29,18 @@ const Chat = ({ currentUser }) => {
         (msg.sender === selectedUser && msg.receiver === currentUser)
       ) {
         setMessages(prev => [...prev, msg]);
+
+        // Emit delivered event if message received is from other user
+        if (msg.sender === selectedUser) {
+          socket.emit('message_delivered', { messageId: msg._id });
+        }
       }
+    });
+
+    socket.on('message_status_updated', ({ messageId, status }) => {
+      setMessages(prev =>
+        prev.map(m => (m._id === messageId ? { ...m, status } : m))
+      );
     });
 
     socket.on('reaction_updated', ({ messageId, reactions }) => {
@@ -42,7 +49,6 @@ const Chat = ({ currentUser }) => {
       );
     });
 
-    // Typing indicator handler
     socket.on('typing', ({ sender, isTyping }) => {
       setTypingUsers(prev => ({
         ...prev,
@@ -52,6 +58,7 @@ const Chat = ({ currentUser }) => {
 
     return () => {
       socket.off('receive_message');
+      socket.off('message_status_updated');
       socket.off('reaction_updated');
       socket.off('typing');
     };
@@ -67,11 +74,19 @@ const Chat = ({ currentUser }) => {
     if (!selectedUser) return;
 
     axios.get(`${BACKEND_URL}/api/messages?sender=${currentUser}&receiver=${selectedUser}`)
-      .then(res => setMessages(res.data))
+      .then(res => {
+        setMessages(res.data);
+
+        // Mark all received messages as read
+        res.data.forEach(msg => {
+          if (msg.receiver === currentUser && msg.status !== 'read') {
+            socket.emit('message_read', { messageId: msg._id });
+          }
+        });
+      })
       .catch(console.error);
   }, [selectedUser, currentUser]);
 
-  // Send new message
   const sendMessage = () => {
     if (!newMessage.trim()) return;
     const msg = {
@@ -81,121 +96,140 @@ const Chat = ({ currentUser }) => {
       timestamp: new Date(),
     };
     socket.emit('send_message', msg);
-    setMessages(prev => [...prev, msg]);
+    setMessages(prev => [...prev, { ...msg, status: 'sent', reactions: [] }]);
     setNewMessage('');
-    stopTyping(); // Stop typing after sending message
-  };
-
-  // Typing event handlers
-  const startTyping = () => {
-    if (!isTyping && selectedUser) {
-      setIsTyping(true);
-      socket.emit('typing', { sender: currentUser, receiver: selectedUser, isTyping: true });
-    }
-    clearTimeout(typingTimeoutRef.current);
-    typingTimeoutRef.current = setTimeout(() => {
-      stopTyping();
-    }, 1000);
-  };
-
-  const stopTyping = () => {
-    if (isTyping) {
-      setIsTyping(false);
-      socket.emit('typing', { sender: currentUser, receiver: selectedUser, isTyping: false });
-    }
-  };
-
-  // Handle input change
-  const handleInputChange = (e) => {
-    setNewMessage(e.target.value);
-    startTyping();
   };
 
   const toggleReaction = (messageId, reaction) => {
     setShowReactionsFor(null);
-
     socket.emit('toggle_reaction', { messageId, user: currentUser, reaction });
   };
 
   const userHasReacted = (message, reaction) =>
     message.reactions?.some(r => r.user === currentUser && r.reaction === reaction);
 
+  // Typing handling
+  const typingTimeoutRef = useRef(null);
+  const handleTyping = (e) => {
+    setNewMessage(e.target.value);
+    socket.emit('typing', { sender: currentUser, receiver: selectedUser, isTyping: true });
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      socket.emit('typing', { sender: currentUser, receiver: selectedUser, isTyping: false });
+    }, 1500);
+  };
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const isOnline = user => onlineUsers.includes(user.username);
+
   return (
     <div className="chat-container">
-      <div className="sidebar">
+      <aside className="users-list">
         <h3>Users</h3>
-        {users.map(user => (
+        {users.filter(u => u.username !== currentUser).map(user => (
           <div
-            key={user.username}
-            className={`user-item ${user.username === selectedUser ? 'selected' : ''} ${onlineUsers.includes(user.username) ? 'online' : ''}`}
+            key={user._id}
+            className={`user-item ${selectedUser === user.username ? 'selected' : ''}`}
             onClick={() => setSelectedUser(user.username)}
           >
-            {user.username}
-            {onlineUsers.includes(user.username) && <span className="online-dot" />}
+            <span className={`status-dot ${isOnline(user) ? 'online' : 'offline'}`}></span>
+            <span>{user.username}</span>
+            {!isOnline(user) && user.lastSeen && (
+              <small>Last seen: {new Date(user.lastSeen).toLocaleString()}</small>
+            )}
           </div>
         ))}
-      </div>
+      </aside>
 
-      <div className="chat-window">
-        {!selectedUser && <div className="welcome">Select a user to chat</div>}
-        {selectedUser && (
+      <section className="chat-box">
+        {selectedUser ? (
           <>
-            <div className="chat-header">Chat with {selectedUser}</div>
-            <div className="messages">
-              {messages.map(m => (
-                <div
-                  key={m._id || m.timestamp}
-                  className={`message ${m.sender === currentUser ? 'sent' : 'received'}`}
-                  onClick={() =>
-                    setShowReactionsFor(showReactionsFor === m._id ? null : m._id)
-                  }
-                >
-                  <div>{m.content}</div>
-                  <small>{new Date(m.timestamp).toLocaleTimeString()}</small>
+            <header>
+              <h3>{selectedUser}</h3>
+              <span className="status-text">
+                {isOnline(users.find(u => u.username === selectedUser))
+                  ? 'Online'
+                  : `Last seen: ${users.find(u => u.username === selectedUser)?.lastSeen ? new Date(users.find(u => u.username === selectedUser).lastSeen).toLocaleString() : 'N/A'}`}
+              </span>
+            </header>
 
-                  {showReactionsFor === m._id && (
-                    <div className="reactions">
-                      {reactionsList.map(reaction => (
-                        <button
-                          key={reaction}
-                          className={`reaction-btn ${userHasReacted(m, reaction) ? 'reacted' : ''}`}
-                          onClick={e => {
-                            e.stopPropagation();
-                            toggleReaction(m._id, reaction);
-                          }}
-                        >
-                          {reaction}
-                        </button>
+            <div className="messages">
+              {messages.map(msg => {
+                const isSender = msg.sender === currentUser;
+                const reacted = reactionsList.some(r => userHasReacted(msg, r));
+
+                return (
+                  <div
+                    key={msg._id || Math.random()}
+                    className={`message ${isSender ? 'sent' : 'received'}`}
+                    onMouseEnter={() => setShowReactionsFor(msg._id)}
+                    onMouseLeave={() => setShowReactionsFor(null)}
+                  >
+                    <p>{msg.content}</p>
+
+                    <div className="message-footer">
+                      <small className="timestamp">{new Date(msg.timestamp).toLocaleTimeString()}</small>
+
+                      {isSender && (
+                        <small className={`status ${msg.status}`}>
+                          {msg.status === 'sent' && '✓'}
+                          {msg.status === 'delivered' && '✓✓'}
+                          {msg.status === 'read' && '✓✓ (Read)'}
+                        </small>
+                      )}
+                    </div>
+
+                    {/* Reactions */}
+                    {showReactionsFor === msg._id && (
+                      <div className="reactions-popup">
+                        {reactionsList.map(r => (
+                          <span
+                            key={r}
+                            className={`reaction-btn ${userHasReacted(msg, r) ? 'reacted' : ''}`}
+                            onClick={() => toggleReaction(msg._id, r)}
+                          >
+                            {r}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Show reactions below message */}
+                    <div className="message-reactions">
+                      {msg.reactions && msg.reactions.length > 0 && msg.reactions.map((r, i) => (
+                        <span key={i} className="reaction-display">{r.reaction}</span>
                       ))}
                     </div>
-                  )}
-                </div>
-              ))}
+                  </div>
+                );
+              })}
+
+              {typingUsers[selectedUser] && (
+                <div className="typing-indicator">{selectedUser} is typing...</div>
+              )}
+
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Typing indicator */}
-            <div className="typing-indicator">
-              {typingUsers[selectedUser] && <em>{selectedUser} is typing...</em>}
-            </div>
-
-            <div className="input-area">
+            <footer>
               <input
                 type="text"
                 placeholder="Type a message..."
                 value={newMessage}
-                onChange={handleInputChange}
+                onChange={handleTyping}
                 onKeyDown={e => e.key === 'Enter' && sendMessage()}
               />
               <button onClick={sendMessage}>Send</button>
-            </div>
+            </footer>
           </>
+        ) : (
+          <div className="no-chat-selected">Select a user to start chatting</div>
         )}
-      </div>
+      </section>
     </div>
   );
 };
