@@ -35,10 +35,18 @@ function Login({ onLoginSuccess }) {
       } else {
         setError('Login failed. Please try again.');
       }
-    } catch (err) {
-      console.error('🚫 Login error:', err.response?.data || err.message);
-      setError(err.response?.data?.error || 'Login failed');
-    }
+     } catch (err) {
+  if (err.response) {
+    console.error('🚫 Error response from server:', {
+      status: err.response.status,
+      data: err.response.data
+    });
+    setError(err.response.data?.error || 'Login failed');
+  } else {
+    console.error('🚫 Login error:', err.message);
+    setError('Login failed');
+  }
+}
   };
 
   return (
