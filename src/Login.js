@@ -12,18 +12,32 @@ function Login({ onLoginSuccess }) {
     e.preventDefault();
     setError('');
 
+    if (!BACKEND_URL) {
+      console.error('❌ Backend URL is not defined.');
+      setError('Backend is not configured.');
+      return;
+    }
+
     try {
-      const res = await axios.post(`${BACKEND_URL}/api/users/login`, { username, password });
-      if (res.data.username) {
+      const res = await axios.post(`${BACKEND_URL}/api/users/login`, {
+        username,
+        password,
+      });
+
+      if (res.data?.username) {
         onLoginSuccess(res.data.username);
+      } else {
+        setError('Login failed. Please try again.');
       }
     } catch (err) {
+      console.error('🚫 Login error:', err.response?.data || err.message);
       setError(err.response?.data?.error || 'Login failed');
     }
   };
 
   return (
     <form onSubmit={handleSubmit}>
+      <h2>Login</h2>
       <input
         type="text"
         placeholder="Username"
