@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+console.log('🔗 Backend URL:', BACKEND_URL);
 
 function Login({ onLoginSuccess }) {
   const [username, setUsername] = useState('');
@@ -18,11 +19,16 @@ function Login({ onLoginSuccess }) {
       return;
     }
 
+    console.log('📤 Sending login request to:', `${BACKEND_URL}/api/users/login`);
+    console.log('📦 Payload:', { username, password });
+
     try {
       const res = await axios.post(`${BACKEND_URL}/api/users/login`, {
         username,
         password,
       });
+
+      console.log('✅ Login response:', res.data);
 
       if (res.data?.username) {
         onLoginSuccess(res.data.username);
