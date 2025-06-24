@@ -16,7 +16,15 @@ const Chat = ({ currentUser }) => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [showReactionsFor, setShowReactionsFor] = useState(null);
+  const [typingUsers, setTypingUsers] = useState(new Set()); // Added typing indicator state
+  const [loadingMessages, setLoadingMessages] = useState(false); // Loading state for messages
   const messagesEndRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+
+  // Scroll to bottom helper
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
 
   useEffect(() => {
     socket.emit('user_connected', currentUser);
@@ -29,6 +37,7 @@ const Chat = ({ currentUser }) => {
         (msg.sender === selectedUser && msg.receiver === currentUser)
       ) {
         setMessages(prev => [...prev, msg]);
+        scrollToBottom();
       }
     });
 
@@ -38,9 +47,26 @@ const Chat = ({ currentUser }) => {
       );
     });
 
+    // Typing indicator events
+    socket.on('user_typing', ({ sender, receiver }) => {
+      if (receiver === currentUser && sender === selectedUser) {
+        setTypingUsers(prev => new Set(prev).add(sender));
+        // Remove typing indicator after 3 seconds of no update
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
+          setTypingUsers(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(sender);
+            return newSet;
+          });
+        }, 3000);
+      }
+    });
+
     return () => {
       socket.off('receive_message');
       socket.off('reaction_updated');
+      socket.off('user_typing');
     };
   }, [currentUser, selectedUser]);
 
@@ -52,10 +78,18 @@ const Chat = ({ currentUser }) => {
 
   useEffect(() => {
     if (!selectedUser) return;
+    setLoadingMessages(true);
 
     axios.get(`${BACKEND_URL}/api/messages?sender=${currentUser}&receiver=${selectedUser}`)
-      .then(res => setMessages(res.data))
-      .catch(console.error);
+      .then(res => {
+        setMessages(res.data);
+        setLoadingMessages(false);
+        scrollToBottom();
+      })
+      .catch(err => {
+        console.error(err);
+        setLoadingMessages(false);
+      });
   }, [selectedUser, currentUser]);
 
   const sendMessage = () => {
@@ -69,20 +103,36 @@ const Chat = ({ currentUser }) => {
     socket.emit('send_message', msg);
     setMessages(prev => [...prev, msg]);
     setNewMessage('');
+    scrollToBottom();
   };
 
   const toggleReaction = (messageId, reaction) => {
     setShowReactionsFor(null);
-
     socket.emit('toggle_reaction', { messageId, user: currentUser, reaction });
   };
 
   const userHasReacted = (message, reaction) =>
     message.reactions?.some(r => r.user === currentUser && r.reaction === reaction);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  // Notify backend & other user when currentUser is typing
+  const handleTyping = e => {
+    setNewMessage(e.target.value);
+    socket.emit('user_typing', { sender: currentUser, receiver: selectedUser });
+  };
+
+  // Delete message function
+  const deleteMessage = async (messageId) => {
+    try {
+      await axios.delete(`${BACKEND_URL}/api/messages/${messageId}`);
+      setMessages(prev => prev.filter(m => m._id !== messageId));
+      socket.emit('message_deleted', { messageId }); // optionally notify others
+    } catch (err) {
+      console.error('Failed to delete message', err);
+    }
+  };
+
+  // Show loading indicator when messages load
+  const LoadingIndicator = () => <div className="loading">Loading messages...</div>;
 
   return (
     <div className="chat-container">
@@ -105,6 +155,9 @@ const Chat = ({ currentUser }) => {
         {selectedUser && (
           <>
             <div className="chat-header">Chat with {selectedUser}</div>
+            
+            {loadingMessages && <LoadingIndicator />}
+
             <div className="messages">
               {messages.map(m => (
                 <div
@@ -114,8 +167,25 @@ const Chat = ({ currentUser }) => {
                     setShowReactionsFor(showReactionsFor === m._id ? null : m._id)
                   }
                 >
-                  <div>{m.content}</div>
+                  <div>
+                    {m.content}
+                    {m.seen && m.sender === currentUser && <span className="seen-status">✓✓</span>}
+                  </div>
                   <small>{new Date(m.timestamp).toLocaleTimeString()}</small>
+
+                  {/* Delete button only for user's own messages */}
+                  {m.sender === currentUser && (
+                    <button 
+                      className="delete-btn"
+                      onClick={e => {
+                        e.stopPropagation();
+                        deleteMessage(m._id);
+                      }}
+                      title="Delete message"
+                    >
+                      🗑️
+                    </button>
+                  )}
 
                   {showReactionsFor === m._id && (
                     <div className="reactions">
@@ -137,15 +207,22 @@ const Chat = ({ currentUser }) => {
               ))}
               <div ref={messagesEndRef} />
             </div>
+
+            {/* Typing indicator */}
+            <div className="typing-indicator">
+              {typingUsers.has(selectedUser) && <em>{selectedUser} is typing...</em>}
+            </div>
+
             <div className="input-area">
               <input
                 type="text"
                 placeholder="Type a message..."
                 value={newMessage}
-                onChange={e => setNewMessage(e.target.value)}
+                onChange={handleTyping}
                 onKeyDown={e => e.key === 'Enter' && sendMessage()}
+                disabled={!selectedUser}
               />
-              <button onClick={sendMessage}>Send</button>
+              <button onClick={sendMessage} disabled={!selectedUser || !newMessage.trim()}>Send</button>
             </div>
           </>
         )}
